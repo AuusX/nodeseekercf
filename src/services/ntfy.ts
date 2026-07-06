@@ -23,6 +23,24 @@ export class NtfyService {
     return (config.ntfy_server_url || 'https://ntfy.sh').trim().replace(/\/+$/, '');
   }
 
+  private getPublishUrl(config: BaseConfig): string {
+    const serverUrl = this.getServerUrl(config);
+    const topic = config.ntfy_topic?.trim() || '';
+    const encodedTopic = encodeURIComponent(topic);
+
+    try {
+      const url = new URL(serverUrl);
+      const lastPath = decodeURIComponent(url.pathname.split('/').filter(Boolean).pop() || '');
+      if (lastPath === topic) {
+        return serverUrl;
+      }
+    } catch (error) {
+      return `${serverUrl}/${encodedTopic}`;
+    }
+
+    return `${serverUrl}/${encodedTopic}`;
+  }
+
   private getPostUrl(post: Post): string {
     return `https://www.nodeseek.com/post-${post.post_id}-1`;
   }
@@ -50,10 +68,10 @@ export class NtfyService {
     const postUrl = this.getPostUrl(post);
     const matchText = this.getMatchText(matchedSub);
     const messageLines = [
-      matchText ? `匹配: ${matchText}` : '',
-      post.creator ? `作者: ${post.creator}` : '',
-      post.category ? `分类: ${this.getCategoryName(post.category)}` : '',
-      postUrl
+      matchText ? `匹配：${matchText}` : '',
+      post.creator ? `作者：${post.creator}` : '',
+      post.category ? `分类：${this.getCategoryName(post.category)}` : '',
+      `链接：${postUrl}`
     ].filter(Boolean);
 
     return this.publish(config, {
@@ -85,24 +103,25 @@ export class NtfyService {
     try {
       const token = config.ntfy_token?.trim();
       const headers: Record<string, string> = {
-        'Content-Type': 'application/json'
+        'Content-Type': 'text/plain; charset=utf-8',
+        'Title': payload.title,
+        'Priority': '3'
       };
 
       if (token) {
         headers.Authorization = `Bearer ${token}`;
       }
+      if (payload.click) {
+        headers.Click = payload.click;
+      }
+      if (payload.tags && payload.tags.length > 0) {
+        headers.Tags = payload.tags.join(',');
+      }
 
-      const response = await fetch(this.getServerUrl(config), {
+      const response = await fetch(this.getPublishUrl(config), {
         method: 'POST',
         headers,
-        body: JSON.stringify({
-          topic: config.ntfy_topic?.trim(),
-          title: payload.title,
-          message: payload.message,
-          click: payload.click,
-          tags: payload.tags,
-          priority: 3
-        })
+        body: payload.message
       });
 
       if (!response.ok) {
